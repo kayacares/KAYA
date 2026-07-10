@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="KAYA app icon">
+  <defs>
+    <radialGradient id="kayaBg" cx="50%" cy="38%" r="72%">
+      <stop offset="0%" stop-color="#F8D67A" />
+      <stop offset="55%" stop-color="#F2C94C" />
+      <stop offset="100%" stop-color="#E0A91A" />
+    </radialGradient>
+    <linearGradient id="kHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1F1F1D" />
+      <stop offset="100%" stop-color="#0F0F0E" />
+    </linearGradient>
+  </defs>
+
+  <!-- App icon background (rounded square, Apple/Android safe) -->
+  <rect width="512" height="512" rx="112" ry="112" fill="url(#kayaBg)" />
+
+  <!-- Soft inner highlight ring for premium depth -->
+  <rect x="6" y="6" width="500" height="500" rx="108" ry="108"
+        fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="2" />
+
+  <!-- KAYA monogram: serif K -->
+  <text x="256" y="378"
+        font-family="Georgia, 'Times New Roman', 'Fraunces', serif"
+        font-size="360" font-weight="700"
+        fill="url(#kHighlight)"
+        text-anchor="middle"
+        letter-spacing="-4">K</text>
+
+  <!-- Heart accent: care detail -->
+  <g transform="translate(384,150)">
+    <path d="M0 14
+             C -10 -4 -38 -4 -38 18
+             C -38 38 -18 54 0 70
+             C 18 54 38 38 38 18
+             C 38 -4 10 -4 0 14 Z"
+          fill="#C97B5D"
+          stroke="#9A4A2E"
+          stroke-width="3"
+          stroke-linejoin="round" />
+  </g>
+</svg>

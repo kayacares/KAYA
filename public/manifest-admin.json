@@ -1,0 +1,60 @@
+{
+  "name": "KAYA Ops — Operations Portal",
+  "short_name": "KAYA Ops",
+  "description": "KAYA staff portal for managing orders, fulfillment, vendors, and operations.",
+  "start_url": "/admin",
+  "scope": "/",
+  "id": "/admin",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#1A1A18",
+  "theme_color": "#1A1A18",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/kaya-app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/kaya-app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Orders queue",
+      "short_name": "Orders",
+      "description": "Operations order queue",
+      "url": "/admin?tab=orders",
+      "icons": [
+        { "src": "/kaya-app-icon.svg", "sizes": "any", "type": "image/svg+xml" }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Operations dashboard",
+      "url": "/admin?tab=dashboard",
+      "icons": [
+        { "src": "/kaya-app-icon.svg", "sizes": "any", "type": "image/svg+xml" }
+      ]
+    },
+    {
+      "name": "Investigations",
+      "short_name": "Issues",
+      "description": "Flagged orders requiring investigation",
+      "url": "/admin?tab=investigations",
+      "icons": [
+        { "src": "/kaya-app-icon.svg", "sizes": "any", "type": "image/svg+xml" }
+      ]
+    }
+  ],
+  "prefer_related_applications": false
+}

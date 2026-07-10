@@ -1,0 +1,54 @@
+{
+  "name": "KAYA — Send Care, Not Just Cash",
+  "short_name": "KAYA",
+  "description": "Care-commerce for diaspora Africans. Send groceries, baby essentials and gifts to loved ones in Ghana.",
+  "start_url": "/",
+  "scope": "/",
+  "id": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#FBF7EE",
+  "theme_color": "#F2C94C",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["shopping", "lifestyle", "social"],
+  "icons": [
+    {
+      "src": "/kaya-app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/kaya-app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Send care",
+      "short_name": "Home",
+      "description": "Choose a recipient and shop",
+      "url": "/",
+      "icons": [{ "src": "/kaya-app-icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Your orders",
+      "short_name": "Orders",
+      "description": "Track care you have sent",
+      "url": "/orders",
+      "icons": [{ "src": "/kaya-app-icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Your people",
+      "short_name": "Recipients",
+      "description": "Saved loved ones",
+      "url": "/recipients",
+      "icons": [{ "src": "/kaya-app-icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    }
+  ],
+  "prefer_related_applications": false
+}

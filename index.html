@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5" />
+    <meta name="theme-color" content="#F2C94C" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1A1A18" media="(prefers-color-scheme: dark)" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/kaya-app-icon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/kaya-app-icon.svg" />
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/kaya-app-icon.svg" />
+    <link rel="mask-icon" href="/kaya-app-icon.svg" color="#F2C94C" />
+    <meta name="application-name" content="KAYA" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="KAYA" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="msapplication-TileColor" content="#F2C94C" />
+    <meta name="msapplication-TileImage" content="/kaya-app-icon.svg" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <!--
+      Base SEO
+      --------
+      These tags are the default that ship in the HTML shell so
+      crawlers and social scrapers who don't execute JavaScript still
+      see meaningful metadata. Per-page overrides (currently the
+      Landing page) are injected at runtime via react-helmet-async
+      through src/pages/Landing.tsx.
+    -->
+    <title>KAYA — Send groceries, baby essentials &amp; gifts to loved ones in Ghana</title>
+    <meta name="description" content="KAYA is the care-commerce platform for diaspora Africans. Send groceries, baby essentials, home goods and curated gift packages directly to family and friends in Accra and Tema." />
+    <meta name="keywords" content="send groceries to Ghana, Ghana diaspora, care packages Ghana, send gifts to Accra, mothercare Ghana, Tema delivery, Accra delivery, diaspora shopping, send care not just cash, KAYA" />
+    <meta name="author" content="KAYA" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="googlebot" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://kaya.onspace.app/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://kaya.onspace.app/" />
+    <meta property="og:title" content="KAYA — Send groceries, baby essentials &amp; gifts to loved ones in Ghana" />
+    <meta property="og:description" content="Care-commerce for diaspora Africans. Send groceries, baby essentials, home goods and curated care packages to family in Accra and Tema." />
+    <meta property="og:image" content="https://kaya.onspace.app/og-image.jpg" />
+    <meta property="og:image:secure_url" content="https://kaya.onspace.app/og-image.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1216" />
+    <meta property="og:image:height" content="640" />
+    <meta property="og:image:alt" content="A Ghanaian grandmother opening a KAYA care package at her home in Accra." />
+    <meta property="og:site_name" content="KAYA" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="KAYA — Send care, not just cash" />
+    <meta name="twitter:description" content="Send groceries, baby essentials and thoughtful gift packages to loved ones in Ghana. Reliable delivery across Accra and Tema." />
+    <meta name="twitter:image" content="https://kaya.onspace.app/og-image.jpg" />
+    <meta name="twitter:image:alt" content="A Ghanaian grandmother opening a KAYA care package." />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+    <!--
+      Structured data
+      ---------------
+      The Organization + WebSite blocks describe the KAYA brand as a
+      whole and ship in the initial HTML so Google can wire up a
+      Knowledge Panel and sitelinks search box even before React
+      hydrates. The Landing page injects an additional LocalBusiness
+      block at runtime via react-helmet-async — that one carries the
+      full trading address, opening hours and service catalogue.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "@id": "https://kaya.onspace.app/#organization",
+        "name": "KAYA",
+        "alternateName": "KAYA Care",
+        "url": "https://kaya.onspace.app/",
+        "logo": "https://kaya.onspace.app/kaya-app-icon.svg",
+        "image": "https://kaya.onspace.app/og-image.jpg",
+        "description": "Care-commerce platform for diaspora Africans sending groceries, baby essentials and gifts to loved ones in Ghana.",
+        "email": "kayacareshops@gmail.com",
+        "areaServed": [
+          { "@type": "City", "name": "Accra" },
+          { "@type": "City", "name": "Tema" }
+        ]
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "@id": "https://kaya.onspace.app/#website",
+        "name": "KAYA",
+        "url": "https://kaya.onspace.app/",
+        "description": "Care-commerce for diaspora Africans sending essentials to Ghana.",
+        "publisher": { "@id": "https://kaya.onspace.app/#organization" },
+        "inLanguage": "en"
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

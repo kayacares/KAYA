@@ -1,0 +1,242 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-cream-50 text-charcoal-800 font-sans antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+  ::selection {
+    @apply bg-mustard-400/40 text-charcoal-900;
+  }
+}
+
+@layer components {
+  .container-app {
+    @apply mx-auto w-full max-w-md sm:max-w-lg md:max-w-xl lg:max-w-3xl xl:max-w-5xl;
+  }
+
+  /* ------------------------------------------------------------- */
+  /*  Typography scale                                             */
+  /*                                                               */
+  /*  A small set of utility classes that codify KAYA's editorial  */
+  /*  hierarchy so every page reads with the same rhythm — big     */
+  /*  Fraunces display headlines, tighter subheads, all-caps       */
+  /*  eyebrows in the brand's rich amber. Existing inline sizes    */
+  /*  still work; these classes are opt-in wherever we want extra  */
+  /*  hierarchy without duplicating class strings.                 */
+  /* ------------------------------------------------------------- */
+  .display {
+    @apply font-display tracking-tight;
+  }
+  .eyebrow {
+    @apply text-[11px] font-bold uppercase tracking-eyebrow text-mustard-600;
+  }
+  .eyebrow-muted {
+    @apply text-[11px] font-bold uppercase tracking-eyebrow text-charcoal-400;
+  }
+  .h-display {
+    @apply font-display font-bold text-charcoal-900 tracking-tight leading-[1.03]
+           text-4xl sm:text-5xl lg:text-6xl;
+  }
+  .h1 {
+    @apply font-display font-bold text-charcoal-900 tracking-tight leading-[1.1]
+           text-3xl sm:text-4xl;
+  }
+  .h2 {
+    @apply font-display font-semibold text-charcoal-900 tracking-tight leading-[1.15]
+           text-2xl sm:text-3xl;
+  }
+  .h3 {
+    @apply font-display font-semibold text-charcoal-900 leading-tight text-xl;
+  }
+  .body-lg {
+    @apply text-base sm:text-lg text-charcoal-700 leading-relaxed;
+  }
+
+  /* ------------------------------------------------------------- */
+  /*  Buttons                                                      */
+  /*                                                               */
+  /*  Primary CTA (.btn-yellow) uses a subtle amber gradient plus  */
+  /*  a warm-toned glow shadow so it lifts visibly from the page   */
+  /*  the way a physical button would. Confirmation CTA            */
+  /*  (.btn-emerald) mirrors the same treatment in KAYA's new      */
+  /*  emerald accent for delivery tracking / order confirmation    */
+  /*  moments.                                                     */
+  /* ------------------------------------------------------------- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 font-semibold transition-all
+           rounded-2xl px-5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-mustard-400/50
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-charcoal-800 text-cream-50 hover:bg-charcoal-700 active:scale-[0.98];
+  }
+  .btn-yellow {
+    @apply btn text-charcoal-900 font-bold;
+    background-image: linear-gradient(180deg, #F5C325 0%, #EBB014 55%, #D69E10 100%);
+    box-shadow: 0 10px 26px -8px rgba(235, 176, 20, 0.55),
+                inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  }
+  .btn-yellow:hover:not(:disabled) {
+    background-image: linear-gradient(180deg, #EBB014 0%, #D69E10 55%, #B48610 100%);
+    box-shadow: 0 16px 32px -8px rgba(235, 176, 20, 0.65),
+                inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    transform: translateY(-1px);
+  }
+  .btn-yellow:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 6px 16px -6px rgba(235, 176, 20, 0.45),
+                inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  }
+  .btn-emerald {
+    @apply btn text-cream-50 font-bold focus:ring-emerald-500/40;
+    background-image: linear-gradient(180deg, #10B981 0%, #059669 55%, #047857 100%);
+    box-shadow: 0 10px 26px -8px rgba(5, 150, 105, 0.5),
+                inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  }
+  .btn-emerald:hover:not(:disabled) {
+    background-image: linear-gradient(180deg, #059669 0%, #047857 55%, #065F46 100%);
+    box-shadow: 0 16px 32px -8px rgba(5, 150, 105, 0.6),
+                inset 0 1px 0 rgba(255, 255, 255, 0.32);
+    transform: translateY(-1px);
+  }
+  .btn-emerald:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-charcoal-700 hover:bg-charcoal-100/60;
+  }
+  .btn-outline {
+    @apply btn border border-charcoal-100 bg-white hover:border-charcoal-800 text-charcoal-800
+           hover:shadow-soft;
+  }
+
+  /* ------------------------------------------------------------- */
+  /*  Cards + chips                                                */
+  /*                                                               */
+  /*  Cards get a slightly heavier resting shadow so they feel     */
+  /*  like objects on paper. `.card-interactive` adds a hover      */
+  /*  lift + border tint for tap targets that lead to detail       */
+  /*  pages, so the shop grid and product tiles respond            */
+  /*  physically to touch.                                         */
+  /* ------------------------------------------------------------- */
+  .card-base {
+    @apply bg-white rounded-3xl border border-charcoal-100/70 shadow-soft;
+  }
+  .card-interactive {
+    @apply card-base transition-all duration-300
+           hover:shadow-lift hover:-translate-y-0.5 hover:border-charcoal-100
+           focus-within:shadow-lift;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold;
+  }
+  .chip-success {
+    @apply chip bg-emerald-100 text-emerald-700;
+  }
+  .chip-warning {
+    @apply chip bg-mustard-100 text-mustard-700;
+  }
+
+  /**
+   * Base form input.
+   *
+   * Font size is `text-base` (16px) on mobile and `text-sm` (14px)
+   * from the `sm` breakpoint up. The mobile 16px minimum prevents
+   * iOS Safari from auto-zooming when a user focuses a field —
+   * inputs below 16px trigger the zoom-in reflow and never zoom
+   * back out, which is the most common source of "my form jumped"
+   * complaints. Every page-level form (Login, Cart, Recipients,
+   * StaffLogin, Waitlist, Admin editors) inherits this fix
+   * automatically.
+   */
+  .input-base {
+    @apply w-full rounded-2xl border border-charcoal-100 bg-white px-4 py-3 text-base sm:text-sm
+           placeholder:text-charcoal-400 focus:outline-none focus:ring-2 focus:ring-mustard-400/40
+           focus:border-mustard-400;
+  }
+  .hide-scrollbar::-webkit-scrollbar { display: none; }
+  .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+}
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+  /**
+   * Image loading skeleton + fade-in.
+   *
+   * `OptimizedImage` toggles `.kaya-img-loading` → `.kaya-img-loaded`
+   * on the <img> element as the bitmap streams in. The loading class
+   * paints a subtle shimmering placeholder directly onto the image
+   * element (visible behind the yet-to-decode content), so every
+   * shop card, product tile, care-package hero and detail sheet
+   * shows a soft warm shape while the network catches up — no
+   * broken-icon flash, no jarring layout shift. Once the image
+   * decodes the class swap triggers a one-shot 260 ms fade so the
+   * pixels pop in gently instead of flashing.
+   */
+  .kaya-img-loading {
+    background-color: #f3ecdd; /* cream-100 */
+    background-image: linear-gradient(
+      100deg,
+      rgba(255, 255, 255, 0) 20%,
+      rgba(255, 255, 255, 0.55) 50%,
+      rgba(255, 255, 255, 0) 80%
+    );
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    animation: kaya-img-shimmer 1.6s ease-in-out infinite;
+  }
+  .kaya-img-loaded {
+    animation: kaya-img-fadein 260ms ease-out;
+  }
+  @keyframes kaya-img-shimmer {
+    0% { background-position: 150% 0; }
+    100% { background-position: -50% 0; }
+  }
+  @keyframes kaya-img-fadein {
+    from { opacity: 0.4; }
+    to { opacity: 1; }
+  }
+
+  /**
+   * Floating-CTA positioning.
+   *
+   * The customer BottomNav is a fixed bar that's roughly 80px tall plus
+   * the iOS safe-area home-bar inset. Any floating sticky CTA (cart
+   * summary, "Add Care Package to Cart", "Checkout", install prompt,
+   * etc.) must sit ABOVE that bar with breathing room — so we offset by
+   * the safe-area inset + 96px and apply this class instead of a raw
+   * `bottom-20`. Works across Cart, Shop, Bundle, CarePackage, etc.
+   */
+  .above-bottom-nav {
+    bottom: calc(env(safe-area-inset-bottom) + 96px);
+  }
+
+  /**
+   * Padding-bottom companion for <main> sections that render a floating
+   * CTA via `.above-bottom-nav`. Clears the CTA's bottom offset + its
+   * vertical footprint + a comfortable gap, so the last list item is
+   * never visually hidden under the CTA. Replaces `pb-40` / `pb-44` on
+   * any page that uses a floating bottom box.
+   */
+  .pb-with-cta {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 13rem);
+  }
+
+  /**
+   * Padding-bottom for pages that DON'T have a floating CTA but still
+   * need to clear the BottomNav comfortably (accounts for safe-area on
+   * iOS so content isn't hidden behind the home bar). Use as a safer
+   * alternative to plain `pb-28`.
+   */
+  .pb-bottom-nav {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 7rem);
+  }
+}
