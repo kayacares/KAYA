@@ -95,7 +95,7 @@ interface AppContextType {
   user: User | null;
   login: (data: Omit<User, "id">) => User;
   signInAs: (u: User) => void;
-  signInWithCredentials: (email: string, password: string) => SignInResult;
+  signInWithCredentials: (email: string, password: string) => Promise<SignInResult>;
   logout: () => void;
   setUser: (u: User) => void;
   respondToReferralPrompt: (source: ReferralSource | null) => void;
@@ -325,6 +325,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Admin and Super Admin now share a single kayacareshops@gmail.com
     // login so the standalone u_admin record has been removed.
     if (loaded?.id === "u_admin") return null;
+    // Never trust a locally cached staff identity. Staff access is restored
+    // only after Supabase Auth supplies a valid session and the email is
+    // verified against staff_members by the auth listener below.
+    if (loaded && getRole(loaded) !== "customer") return null;
     return loaded;
   });
   const [customers, setCustomers] = useState<User[]>(() => {
@@ -767,13 +771,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // ============ Supabase Auth listener (customer auth) ============
-  // Handles Google OAuth redirects, page-load session restoration and
-  // any explicit signInWithPassword calls. Skips staff members (who
-  // use app-layer auth) and no-ops when the local KAYA user already
-  // matches the incoming Supabase session, and skips entirely on the
-  // password-reset pages so recovery sessions don't accidentally sign
-  // the user into somebody else's account.
+  // ============ Supabase Auth listener ============
+  // Handles staff and customer page-load session restoration, OAuth redirects,
+  // and explicit password sign-ins. Staff is resolved first so an operator is
+  // never accidentally materialized as a customer profile. It skips the
+  // password-reset pages so recovery sessions don't accidentally sign the
+  // user into somebody else's account.
   useEffect(() => {
     let mounted = true;
 
@@ -786,7 +789,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       );
     };
 
-    const syncCustomerFromSupabaseAuth = async (authUser: {
+    const syncUserFromSupabaseAuth = async (authUser: {
       id: string;
       email?: string | null;
       user_metadata?: Record<string, unknown>;
@@ -794,6 +797,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!mounted) return;
       const email = authUser.email?.toLowerCase();
       if (!email) return;
+
+      try {
+        const staff = await catalog.fetchStaffByEmail(email);
+        if (staff) {
+          const signedInStaff = {
+            ...staff,
+            lastSignInAt: new Date().toISOString(),
+          };
+          if (!mounted) return;
+          setUserState(signedInStaff);
+          setCustomers((prev) => [
+            signedInStaff,
+            ...prev.filter((c) => c.id !== signedInStaff.id),
+          ]);
+          return;
+        }
+      } catch (err) {
+        console.warn("[KAYA] Auth sync fetch staff failed:", err);
+      }
 
       let profile: User | undefined;
       try {
@@ -868,17 +890,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     void supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted || !session?.user) return;
       if (isOnResetPage()) return;
-      const currentUser = loadJSON<User | null>(
-        STORAGE_KEYS.user,
-        null
-      );
-      if (currentUser && getRole(currentUser) !== "customer") return;
-      if (
-        currentUser?.email.toLowerCase() ===
-        session.user.email?.toLowerCase()
-      )
-        return;
-      void syncCustomerFromSupabaseAuth(session.user);
+      void syncUserFromSupabaseAuth(session.user);
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange(
@@ -887,17 +899,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (event === "PASSWORD_RECOVERY") return;
         if (isOnResetPage()) return;
         if (event === "SIGNED_IN" && session?.user) {
-          const currentUser = loadJSON<User | null>(
-            STORAGE_KEYS.user,
-            null
-          );
-          if (currentUser && getRole(currentUser) !== "customer") return;
-          if (
-            currentUser?.email.toLowerCase() ===
-            session.user.email?.toLowerCase()
-          )
-            return;
-          void syncCustomerFromSupabaseAuth(session.user);
+          void syncUserFromSupabaseAuth(session.user);
         }
       }
     );
@@ -1115,22 +1117,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           });
         }
       },
-      signInWithCredentials: (email, password) => {
+      signInWithCredentials: async (email, password) => {
         const cleanedEmail = email.trim().toLowerCase();
-        const found = customers.find(
-          (u) => u.email.toLowerCase() === cleanedEmail
-        );
-        if (!found) {
-          return { ok: false, error: "No staff account found with that email." };
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: cleanedEmail,
+          password,
+        });
+        if (error || !data.user) {
+          return { ok: false, error: "Email or password is incorrect." };
         }
-        if (getRole(found) === "customer") {
-          return {
-            ok: false,
-            error: "This sign-in is for staff only — customers sign in at /login.",
-          };
+        let found: User | null = null;
+        try {
+          found = await catalog.fetchStaffByEmail(cleanedEmail);
+        } catch (err) {
+          await supabase.auth.signOut();
+          return { ok: false, error: "Staff access could not be verified." };
         }
-        if (!found.password || found.password !== password) {
-          return { ok: false, error: "Wrong password. Try again." };
+        if (!found || getRole(found) === "customer") {
+          await supabase.auth.signOut();
+          return { ok: false, error: "This account is not authorized for KAYA Ops." };
         }
         const updated: User = {
           ...found,
@@ -1140,15 +1145,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setCustomers((prev) =>
           prev.map((x) => (x.id === updated.id ? updated : x))
         );
-        // Push the fresh sign-in timestamp to the shared staff table
-        // so the Staff tab on every device shows when each operator
-        // last touched KAYA Ops.
-        void catalog.updateStaffLastSignIn(updated.id).catch((err) => {
-          console.warn(
-            "[KAYA] Staff sign-in timestamp didn't reach the server:",
-            err
-          );
-        });
+        // Password verification and the durable session are both owned by
+        // Supabase Auth. staff_members remains authorization/profile data.
         appendAudit(updated, {
           category: "auth",
           action: "Signed in to KAYA Ops",
@@ -1168,15 +1166,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setCartMessageState("");
         setCartBundleIdState(null);
         setActiveRecipientId(null);
-        // Customers authenticate via Supabase Auth (Google OAuth or
-        // email + password), so also drop that session. Staff auth is
-        // app-layer only, so nothing to sign out of on the Supabase
-        // side for them.
-        if (currentUser && getRole(currentUser) === "customer") {
-          void supabase.auth.signOut().catch((err) =>
-            console.warn("[KAYA] Supabase sign out failed:", err)
-          );
-        }
+        void supabase.auth.signOut().catch((err) =>
+          console.warn("[KAYA] Supabase sign out failed:", err)
+        );
       },
       setUser: (u) => {
         setUserState(u);
@@ -1268,11 +1260,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           (c) => c.email.toLowerCase() === email
         );
         if (target) {
-          setCustomers((prev) =>
-            prev.map((c) =>
-              c.id === target.id ? { ...c, password: newPassword } : c
-            )
-          );
           appendAudit(target, {
             category: "auth",
             action: "Reset password via email link",
