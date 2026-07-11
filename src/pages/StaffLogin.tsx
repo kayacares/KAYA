@@ -36,7 +36,7 @@ export default function StaffLogin() {
     setResetSent(false);
   };
 
-  const handleSignIn = (e: React.FormEvent) => {
+  const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     if (!email.includes("@") || !email.includes(".")) {
@@ -48,7 +48,7 @@ export default function StaffLogin() {
       return;
     }
     setSubmitting(true);
-    const result = signInWithCredentials(email, password);
+    const result = await signInWithCredentials(email, password);
     if (!result.ok) {
       setError(result.error ?? "Sign in failed.");
       setSubmitting(false);
