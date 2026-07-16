@@ -1,5 +1,18 @@
 # Welcome to your OnSpace project
 
+## Secure staff authentication
+
+Staff sign-in uses Supabase Auth. Before deploying the frontend:
+
+1. Apply `supabase/migrations/20260710000000_secure_staff_catalog_writes.sql`.
+2. In Supabase **Authentication → Users**, create an Auth user for each existing
+   `staff_members.email`. Set or invite each user's password there.
+3. Do not use or populate the legacy `staff_members.password` column. It can be
+   removed after all environments have migrated.
+
+Catalog reads remain public, while creates, edits, and deletes require an
+authenticated user whose email matches an admin/ops row in `staff_members`.
+
 ## How can I edit this code?
 
 There are several ways of editing your application.

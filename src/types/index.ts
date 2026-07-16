@@ -84,7 +84,7 @@ export interface User {
   isAdmin?: boolean;
   role?: UserRole;
   joinedAt?: string;
-  /** Password — only used for staff portal sign-in (pre-launch local storage). */
+  /** @deprecated Passwords are managed by Supabase Auth and must not be persisted. */
   password?: string;
   /** Timestamp of last successful staff sign-in. */
   lastSignInAt?: string;
