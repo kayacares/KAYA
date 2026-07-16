@@ -43,9 +43,12 @@ import type {
  * and the camelCase TypeScript domain models the rest of the app
  * already uses, so callers never see raw rows.
  *
- * Security note: catalog mutations require a Supabase Auth session whose
- * email matches an enabled staff_members row. See the matching migration in
- * `supabase/migrations/20260710000000_secure_staff_catalog_writes.sql`.
+ * Security note: write policies are intentionally open to the
+ * `anon` role today because staff authentication happens at the
+ * application layer (password match against the seeded staff
+ * record), not via Supabase Auth. Future hardening should
+ * migrate staff sign-in to Supabase Auth and tighten the RLS
+ * policies on these tables to authenticated-only.
  * ============================================================
  */
 
@@ -658,12 +661,15 @@ export async function deleteOrderRow(id: string): Promise<void> {
 // localStorage on the device they signed up from (separate concern,
 // not in scope for this migration).
 //
-// Password verification is owned by Supabase Auth. The legacy password
-// column is intentionally neither selected nor written by this client.
+// Security note: passwords are stored in plain text to match the
+// existing application-layer auth model. Future hardening should
+// migrate staff sign-in to Supabase Auth (auth.users) and tighten
+// the table's RLS to authenticated reads only.
 
 interface StaffRow {
   id: string;
   email: string;
+  password: string;
   first_name: string | null;
   last_name: string | null;
   name: string;
@@ -683,6 +689,7 @@ interface StaffRow {
 const staffFromRow = (r: StaffRow): User => ({
   id: r.id,
   email: r.email,
+  password: r.password,
   firstName: r.first_name ?? undefined,
   lastName: r.last_name ?? undefined,
   name: r.name,
@@ -702,6 +709,7 @@ const staffFromRow = (r: StaffRow): User => ({
 const staffToRow = (s: User): StaffRow => ({
   id: s.id,
   email: s.email,
+  password: s.password ?? "",
   first_name: s.firstName ?? null,
   last_name: s.lastName ?? null,
   name: s.name,
@@ -721,20 +729,10 @@ const staffToRow = (s: User): StaffRow => ({
 export async function fetchStaff(): Promise<User[]> {
   const { data, error } = await supabase
     .from("staff_members")
-    .select("id,email,first_name,last_name,name,phone,role,is_admin,country,currency,phone_verified,joined_at,last_sign_in_at,referral_code,pending_credit_ghs,referrals_count")
+    .select("*")
     .order("joined_at", { ascending: true });
   if (error) throw error;
   return (data as StaffRow[]).map(staffFromRow);
-}
-
-export async function fetchStaffByEmail(email: string): Promise<User | null> {
-  const { data, error } = await supabase
-    .from("staff_members")
-    .select("id,email,first_name,last_name,name,phone,role,is_admin,country,currency,phone_verified,joined_at,last_sign_in_at,referral_code,pending_credit_ghs,referrals_count")
-    .ilike("email", email.trim())
-    .maybeSingle();
-  if (error) throw error;
-  return data ? staffFromRow(data as StaffRow) : null;
 }
 
 export async function upsertStaffRow(s: User): Promise<void> {
