@@ -74,13 +74,54 @@ runStorageMigration();
 
 const AUDIT_LOG_MAX = 1000;
 
+/**
+ * Server-wins merge keyed by id. Returns a new array containing:
+ *   - Every row from `server` (server is source of truth).
+ *   - Any row in `local` whose id doesn't exist on the server
+ *     (preserves optimistic additions that haven't fully replicated
+ *     yet, or that were saved offline).
+ *
+ * Order: server rows first (in server order), then local-only rows
+ * in their original relative order. Consumers that need a specific
+ * order (e.g. DeliveryAreasTab sorts by city + name) re-sort in a
+ * useMemo, so we don't try to be clever here.
+ *
+ * ⚠️ Do NOT change this to a full replace. See the "MERGE-INSTEAD-
+ * OF-REPLACE" note above for the recurring bug this prevents.
+ */
+function mergeById<T extends { id: string }>(server: T[], local: T[]): T[] {
+  const seen = new Set<string>();
+  const merged: T[] = [];
+  for (const s of server) {
+    if (seen.has(s.id)) continue;
+    seen.add(s.id);
+    merged.push(s);
+  }
+  for (const l of local) {
+    if (seen.has(l.id)) continue;
+    seen.add(l.id);
+    merged.push(l);
+  }
+  return merged;
+}
+
 // v5 — The customer-facing catalogue (shops, products, vendors,
 // delivery areas, care packages) now lives in a shared Supabase
 // database and is fetched by the sync useEffect below via one
 // Promise.allSettled call per entity, so a single failure in any
 // endpoint never freezes the rest on stale localStorage data.
-// There are no seeded in-code defaults to tombstone any more, so
-// the tombstone Sets that used to live here have been retired.
+//
+// ⚠️ MERGE-INSTEAD-OF-REPLACE (fixed 2026-Q3, do not regress):
+// Every entity sync uses `mergeById` below so a poll that returns
+// a stale snapshot (row hasn't fully replicated yet, PostgREST
+// hit a read replica, upsert response was empty due to RLS on
+// RETURNING, etc.) can never wipe an optimistically-added row
+// from local state. Server rows still win on id collision — so
+// the moment the server catches up its version overwrites the
+// local placeholder with identical data. Recurring bug this
+// fixes: "delivery area saved to DB but disappears from UI
+// within seconds" — the sync was replacing state before the
+// polled fetch reliably included the just-written row.
 // Writes hit Supabase via `catalog.upsertXRow` / `catalog.deleteXRow`
 // immediately after the optimistic local update, then the next
 // poll/focus refresh in every other open browser picks up the
@@ -607,17 +648,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         lcRes,
       ] = results;
 
-      // Shops — full replace so admin deletes propagate.
+      // Shops — MERGE (server wins, preserve local-only optimistic rows).
       if (shopsRes.status === "fulfilled") {
-        setShops(shopsRes.value);
+        const fresh = shopsRes.value;
+        setShops((prev) => mergeById(fresh, prev));
       } else {
         console.warn("[KAYA] Shops sync failed:", shopsRes.reason);
       }
 
-      // Products — full replace so admin deletes / availability
-      // toggles propagate to every customer device.
+      // Products — MERGE so an admin edit that already landed locally
+      // isn't wiped by a stale poll before the DB replica catches up.
       if (productsRes.status === "fulfilled") {
-        setProducts(productsRes.value);
+        const fresh = productsRes.value;
+        setProducts((prev) => mergeById(fresh, prev));
       } else {
         console.warn(
           "[KAYA] Products sync failed:",
@@ -625,9 +668,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
-      // Vendors — full replace.
+      // Vendors — MERGE.
       if (vendorsRes.status === "fulfilled") {
-        setVendors(vendorsRes.value);
+        const fresh = vendorsRes.value;
+        setVendors((prev) => mergeById(fresh, prev));
       } else {
         console.warn(
           "[KAYA] Vendors sync failed:",
@@ -635,10 +679,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
-      // Delivery areas — full replace so newly-added towns show up
-      // in the AddRecipientSheet dropdown across every device.
+      // Delivery areas — MERGE. This is the entity where the
+      // "saved-but-disappears" bug was first observed; the merge
+      // guarantees a newly-added town cannot be wiped by a poll
+      // whose response is briefly missing the row.
       if (areasRes.status === "fulfilled") {
-        setDeliveryAreas(areasRes.value);
+        const fresh = areasRes.value;
+        setDeliveryAreas((prev) => mergeById(fresh, prev));
       } else {
         console.warn(
           "[KAYA] Delivery areas sync failed:",
@@ -646,9 +693,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
-      // Care packages — full replace.
+      // Care packages — MERGE.
       if (cpRes.status === "fulfilled") {
-        setCarePackages(cpRes.value);
+        const fresh = cpRes.value;
+        setCarePackages((prev) => mergeById(fresh, prev));
       } else {
         console.warn(
           "[KAYA] Care packages sync failed:",
@@ -656,9 +704,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
-      // Orders — full replace (with legacy status migration).
+      // Orders — MERGE (with legacy status migration on server rows).
       if (ordersRes.status === "fulfilled") {
-        setOrders(ordersRes.value.map(migrateOrder));
+        const fresh = ordersRes.value.map(migrateOrder);
+        setOrders((prev) => mergeById(fresh, prev));
       } else {
         console.warn(
           "[KAYA] Orders sync failed:",
@@ -2009,13 +2058,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ? prev.map((a) => (a.id === cleaned.id ? cleaned : a))
             : [cleaned, ...prev]
         );
-        // Push to shared Supabase catalog.
+        // Push to shared Supabase catalog. On error, surface the
+        // real Supabase error (code + message) so silent failures
+        // become debuggable, and MERGE the refetched server rows
+        // instead of replacing state (which could itself wipe the
+        // optimistic add if the refetch is racing the write commit).
         void catalog.upsertDeliveryAreaRow(cleaned).catch((err) => {
-          console.error("[KAYA] Delivery area save failed:", err);
-          toast.error("Delivery area didn't save to the server. Refreshing\u2026");
+          const detail =
+            (err && (err.message || err.error_description || err.hint)) ||
+            String(err);
+          console.error(
+            "[KAYA] Delivery area save failed:",
+            err,
+            detail
+          );
+          toast.error(`Delivery area save failed: ${detail}`);
           void catalog
             .fetchDeliveryAreas()
-            .then(setDeliveryAreas)
+            .then((fresh) =>
+              setDeliveryAreas((prev) => mergeById(fresh, prev))
+            )
             .catch(() => {});
         });
         if (user) {
@@ -2047,13 +2109,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const target = deliveryAreas.find((a) => a.id === id);
         if (!target) return;
         setDeliveryAreas((prev) => prev.filter((a) => a.id !== id));
-        // Push delete to shared Supabase catalog.
+        // Push delete to shared Supabase catalog. On error, MERGE
+        // the refetched server rows so we don't accidentally
+        // resurrect deletes that DID commit while surfacing the
+        // actual Supabase error to the operator.
         void catalog.deleteDeliveryAreaRow(id).catch((err) => {
-          console.error("[KAYA] Delivery area delete failed:", err);
-          toast.error("Delivery area delete didn't reach the server. Refreshing\u2026");
+          const detail =
+            (err && (err.message || err.error_description || err.hint)) ||
+            String(err);
+          console.error(
+            "[KAYA] Delivery area delete failed:",
+            err,
+            detail
+          );
+          toast.error(`Delivery area delete failed: ${detail}`);
           void catalog
             .fetchDeliveryAreas()
-            .then(setDeliveryAreas)
+            .then((fresh) =>
+              setDeliveryAreas((prev) => mergeById(fresh, prev))
+            )
             .catch(() => {});
         });
         if (user) {
