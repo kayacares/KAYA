@@ -795,6 +795,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const email = authUser.email?.toLowerCase();
       if (!email) return;
 
+      // ⚠️ STAFF SIGN-IN GUARD (fixed 2026-Q3, do not regress):
+      // If the incoming Supabase Auth email matches a staff_members
+      // row, this is a staff sign-in (either via /staff-login or a
+      // restored staff session on page refresh). StaffLogin.tsx
+      // owns the local user state for staff, so we MUST NOT create
+      // a phantom customer profile here — doing so would
+      //   (a) INSERT a spurious row into public.customers keyed on
+      //       the staff's auth UUID,
+      //   (b) overwrite the staff React state with role="customer"
+      //       via setUserState, causing the deny() checks to reject
+      //       every subsequent admin write, and
+      //   (c) confuse the customers list UI with a duplicate.
+      // The staff table has open authenticated_select policies so
+      // this lookup succeeds with any valid JWT.
+      try {
+        const { data: staffMatch, error: staffError } = await supabase
+          .from("staff_members")
+          .select("id")
+          .ilike("email", email)
+          .maybeSingle();
+        if (!staffError && staffMatch) {
+          // Staff — bail out; StaffLogin already set local state.
+          return;
+        }
+      } catch (err) {
+        console.warn("[KAYA] Auth sync staff-check failed:", err);
+      }
+
       let profile: User | undefined;
       try {
         const list = await catalog.fetchCustomers();
