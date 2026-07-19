@@ -2200,14 +2200,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // especially) can render an explicit retry UI instead of
         // silently showing an empty dropdown. Home's fire-and-
         // forget call wraps in .catch() to stay non-blocking.
-        const fresh = await catalog.fetchDeliveryAreas();
+        //
+        // ⚠️ MOBILE-RESILIENCE (fixed 2026-Q3, do not regress):
+        // catalog.fetchDeliveryAreas() races supabase-js against a
+        // raw `fetch()` transport so mobile browsers where the
+        // supabase-js client hangs (Instagram/Facebook in-app
+        // browsers, iOS Safari with strict tracking prevention,
+        // older Android WebViews) still get delivery areas via
+        // the raw transport. See catalog.ts for the full rationale.
         console.log(
-          "[KAYA] refreshDeliveryAreas fetched:",
-          fresh.length,
-          "rows"
+          "[KAYA] refreshDeliveryAreas: starting fetch (UA:",
+          typeof navigator !== "undefined" ? navigator.userAgent : "?",
+          ")"
         );
-        setDeliveryAreas(fresh);
-        return fresh.length;
+        try {
+          const fresh = await catalog.fetchDeliveryAreas();
+          console.log(
+            "[KAYA] refreshDeliveryAreas succeeded:",
+            fresh.length,
+            "rows"
+          );
+          setDeliveryAreas(fresh);
+          return fresh.length;
+        } catch (err) {
+          console.error(
+            "[KAYA] refreshDeliveryAreas failed — rethrowing to caller:",
+            err
+          );
+          throw err;
+        }
       },
       removeDeliveryArea: (id) => {
         if (deny("delivery_areas.manage", "remove delivery areas")) return;

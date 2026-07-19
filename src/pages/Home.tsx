@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowRight,
@@ -58,14 +58,29 @@ export default function Home() {
   // cache state or sync timing. Wrapped in .catch() because
   // refreshDeliveryAreas now throws on failure — Home stays
   // silent, the sheet surfaces the error with a retry.
+  //
+  // Stable-ref pattern: refreshDeliveryAreas is recreated on
+  // every AppContext state change (it lives inside a useMemo),
+  // so gating this effect on its identity fires it on every
+  // parent state update — which on mobile can cause the fetch
+  // to be cancelled mid-flight, or hammer the network. Use a
+  // ref so we always call the latest version but the effect
+  // itself only fires once on mount.
+  const refreshDeliveryAreasRef = useRef(refreshDeliveryAreas);
   useEffect(() => {
-    void refreshDeliveryAreas().catch((err) => {
-      console.warn(
-        "[KAYA] Home refreshDeliveryAreas failed (mobile network?):",
-        err
-      );
-    });
+    refreshDeliveryAreasRef.current = refreshDeliveryAreas;
   }, [refreshDeliveryAreas]);
+  useEffect(() => {
+    console.log("[KAYA] Home mount → fetching delivery areas…");
+    void refreshDeliveryAreasRef
+      .current()
+      .catch((err) => {
+        console.warn(
+          "[KAYA] Home refreshDeliveryAreas failed (mobile network?):",
+          err
+        );
+      });
+  }, []);
   const orders = useMemo(
     () => (user ? allOrders.filter((o) => o.senderId === user.id) : []),
     [allOrders, user]

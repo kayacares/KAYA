@@ -325,12 +325,99 @@ const deliveryAreaToRow = (a: DeliveryArea) => ({
 });
 
 export async function fetchDeliveryAreas(): Promise<DeliveryArea[]> {
-  const { data, error } = await supabase
-    .from("delivery_areas")
-    .select("*")
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-  return (data as DeliveryAreaRow[]).map(deliveryAreaFromRow);
+  // ⚠️ MOBILE-RESILIENT FETCH (fixed 2026-Q3, do not regress):
+  // On some mobile browsers (iOS Safari in Low Power Mode, older
+  // Android WebViews, in-app browsers like Instagram/Facebook, and
+  // any browser with aggressive tracking-prevention), the
+  // supabase-js client's fetch pipeline occasionally hangs or
+  // rejects with an opaque network error the first time it runs
+  // — leaving the customer with an empty Town/Area dropdown. We
+  // race supabase-js against a raw `fetch()` call to the exact
+  // same PostgREST endpoint so whichever transport succeeds
+  // first wins. Both use the anonymous key and hit the same
+  // public.delivery_areas RLS policy, so the result is identical
+  // when both succeed. If both fail we throw the more
+  // descriptive error so the retry UI can display it.
+  const url = import.meta.env.VITE_SUPABASE_URL as string;
+  const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+  const supabaseJsAttempt = (async (): Promise<DeliveryArea[]> => {
+    const { data, error } = await supabase
+      .from("delivery_areas")
+      .select("*")
+      .order("created_at", { ascending: true });
+    if (error) throw new Error(`supabase-js: ${error.message}`);
+    return (data as DeliveryAreaRow[]).map(deliveryAreaFromRow);
+  })();
+
+  const rawFetchAttempt = (async (): Promise<DeliveryArea[]> => {
+    if (!url || !key) {
+      throw new Error("raw-fetch: Supabase env vars missing");
+    }
+    // AbortController timeout — mobile networks can hang requests
+    // indefinitely. 10s is generous; on WiFi this returns in ~200ms.
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 10_000);
+    try {
+      const res = await fetch(
+        `${url}/rest/v1/delivery_areas?select=*&order=created_at.asc`,
+        {
+          method: "GET",
+          headers: {
+            apikey: key,
+            Authorization: `Bearer ${key}`,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          signal: controller.signal,
+          // Explicitly opt out of any HTTP caching so a stale
+          // browser cache can never mask an admin update.
+          cache: "no-store",
+        }
+      );
+      window.clearTimeout(timeoutId);
+      if (!res.ok) {
+        const bodyText = await res.text().catch(() => "");
+        throw new Error(
+          `raw-fetch: HTTP ${res.status} ${res.statusText}${
+            bodyText ? ` — ${bodyText.slice(0, 200)}` : ""
+          }`
+        );
+      }
+      const rows = (await res.json()) as DeliveryAreaRow[];
+      return rows.map(deliveryAreaFromRow);
+    } catch (err) {
+      window.clearTimeout(timeoutId);
+      if ((err as Error).name === "AbortError") {
+        throw new Error("raw-fetch: network timeout after 10s");
+      }
+      throw err;
+    }
+  })();
+
+  // Race — whichever transport returns first wins. Promise.any
+  // resolves with the first fulfilled promise and only rejects
+  // if EVERY promise rejects (AggregateError with all reasons).
+  try {
+    const winner = await Promise.any([supabaseJsAttempt, rawFetchAttempt]);
+    console.log(
+      "[KAYA] fetchDeliveryAreas returned",
+      winner.length,
+      "rows"
+    );
+    return winner;
+  } catch (err) {
+    // Promise.any wraps rejections in AggregateError — surface the
+    // combined reasons so the mobile retry UI can show what went
+    // wrong on both transports.
+    const agg = err as AggregateError & { errors?: Error[] };
+    const messages = (agg.errors ?? []).map((e) => e.message).join(" · ");
+    console.error(
+      "[KAYA] fetchDeliveryAreas: BOTH transports failed:",
+      messages
+    );
+    throw new Error(messages || "Both fetch transports failed");
+  }
 }
 
 export async function upsertDeliveryAreaRow(a: DeliveryArea): Promise<void> {

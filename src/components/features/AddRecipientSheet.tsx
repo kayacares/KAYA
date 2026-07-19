@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -94,6 +95,21 @@ export default function AddRecipientSheet({
   const [areasLoading, setAreasLoading] = useState(false);
   const [areasError, setAreasError] = useState("");
 
+  // ⚠️ STABLE-REF PATTERN (fixed 2026-Q3, do not regress):
+  // `refreshDeliveryAreas` is created inside AppContext's useMemo,
+  // so its identity changes on every parent re-render. If we put
+  // it directly in useEffect deps, the effect fires on every
+  // parent state change and continuously reflushes areasLoading
+  // — which on mobile makes the loading indicator flash so fast
+  // it never appears to the user, and can even cause the fetch
+  // to be cancelled mid-flight when the effect re-runs. Store
+  // the latest function in a ref so the effect can call the
+  // freshest version without depending on its identity.
+  const refreshRef = useRef(refreshDeliveryAreas);
+  useEffect(() => {
+    refreshRef.current = refreshDeliveryAreas;
+  }, [refreshDeliveryAreas]);
+
   // Hydrate / reset the form every time the sheet opens. Editing pulls
   // every saved field; adding zeroes everything back to defaults.
   useEffect(() => {
@@ -112,7 +128,19 @@ export default function AddRecipientSheet({
     let cancelled = false;
     setAreasLoading(true);
     setAreasError("");
-    refreshDeliveryAreas()
+    console.log(
+      "[KAYA] AddRecipientSheet mount → fetching delivery areas…"
+    );
+    refreshRef
+      .current()
+      .then((count) => {
+        if (cancelled) return;
+        console.log(
+          "[KAYA] AddRecipientSheet fetch resolved with",
+          count,
+          "rows"
+        );
+      })
       .catch((err) => {
         if (cancelled) return;
         const msg =
@@ -168,7 +196,10 @@ export default function AddRecipientSheet({
     return () => {
       cancelled = true;
     };
-  }, [open, recipient, refreshDeliveryAreas]);
+    // The eslint-disable-next-line comment was removed.
+    // If 'react-hooks/exhaustive-deps' rule is still needed for other effects,
+    // ensure it's configured in your ESLint setup.
+  }, [open, recipient]);
 
   // Only entries the customer can pick from the dropdown.
   const cityAreas = useMemo(
@@ -220,13 +251,16 @@ export default function AddRecipientSheet({
   const retryLoadAreas = () => {
     setAreasLoading(true);
     setAreasError("");
-    refreshDeliveryAreas()
+    console.log("[KAYA] AddRecipientSheet retry → fetching delivery areas…");
+    refreshRef
+      .current()
       .catch((err) => {
         const msg =
           err instanceof Error
             ? err.message
             : "Couldn’t reach the delivery catalog";
         setAreasError(msg);
+        console.warn("[KAYA] AddRecipientSheet retry failed:", err);
       })
       .finally(() => setAreasLoading(false));
   };
@@ -523,6 +557,9 @@ export default function AddRecipientSheet({
                     </p>
                     <p className="text-[11px] text-charcoal-700 mt-0.5 leading-snug">
                       Check your connection and try again.
+                    </p>
+                    <p className="text-[10px] text-charcoal-400 mt-1 leading-snug break-all">
+                      {areasError}
                     </p>
                     <button
                       type="button"
