@@ -3,6 +3,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { toast } from "sonner";
@@ -327,6 +328,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (loaded?.id === "u_admin") return null;
     return loaded;
   });
+
+  // ⚠️ ACTIVE-USER REF (fixed 2026-Q3, do not regress):
+  // Mirrors the current React user into a ref so the auth listener
+  // callbacks below (syncCustomerFromSupabaseAuth, getSession, and
+  // onAuthStateChange) can gate on the LIVE user, not a potentially-
+  // stale localStorage snapshot. Without this, a staff sign-in races
+  // the Supabase SIGNED_IN event: StaffLogin calls signInWithPassword,
+  // Supabase fires SIGNED_IN before StaffLogin.saveJSON writes the
+  // staff record to localStorage, the listener reads null/customer
+  // from disk, treats the session as a customer sign-in, and
+  // overwrites setUserState with a customer profile — locking the
+  // operator out of /admin with a "Staff access only" screen even
+  // though their write to Supabase succeeded.
+  const userRef = useRef<User | null>(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
   const [customers, setCustomers] = useState<User[]>(() => {
     const stored = loadJSON<User[] | null>(STORAGE_KEYS.customers, null);
     if (!stored || stored.length === 0) return [...DEFAULT_STAFF];
@@ -795,6 +813,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const email = authUser.email?.toLowerCase();
       if (!email) return;
 
+      // ⚠️ ACTIVE-STAFF-SESSION GUARD (fixed 2026-Q3, do not regress):
+      // If the latest React user is already staff, DO NOT run the
+      // customer sync — the incoming JWT was minted for a staff
+      // sign-in and any setUserState below would strip their role
+      // and lock them out of /admin with "Staff access only". This
+      // closes the race where SIGNED_IN fires between StaffLogin's
+      // signInWithPassword resolving and its saveJSON writing the
+      // staff record to disk.
+      const activeUser = userRef.current;
+      if (activeUser && getRole(activeUser) !== "customer") return;
+
       // ⚠️ STAFF SIGN-IN GUARD (fixed 2026-Q3, do not regress):
       // If the incoming Supabase Auth email matches a staff_members
       // row, this is a staff sign-in (either via /staff-login or a
@@ -808,19 +837,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       //       every subsequent admin write, and
       //   (c) confuse the customers list UI with a duplicate.
       // The staff table has open authenticated_select policies so
-      // this lookup succeeds with any valid JWT.
+      // this lookup succeeds with any valid JWT. On ANY error we
+      // BAIL DEFENSIVELY rather than risk overwriting a staff
+      // session with a phantom customer profile — the auth listener
+      // will get another chance on the next SIGNED_IN or
+      // getSession tick.
       try {
         const { data: staffMatch, error: staffError } = await supabase
           .from("staff_members")
           .select("id")
           .ilike("email", email)
           .maybeSingle();
-        if (!staffError && staffMatch) {
+        if (staffError) {
+          console.warn(
+            "[KAYA] Auth sync staff-check errored — bailing to protect session:",
+            staffError
+          );
+          return;
+        }
+        if (staffMatch) {
           // Staff — bail out; StaffLogin already set local state.
           return;
         }
       } catch (err) {
-        console.warn("[KAYA] Auth sync staff-check failed:", err);
+        console.warn(
+          "[KAYA] Auth sync staff-check threw — bailing to protect session:",
+          err
+        );
+        return;
       }
 
       let profile: User | undefined;
@@ -879,6 +923,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!mounted || !profile) return;
+      // Final guard: another sign-in flow (e.g. StaffLogin's signInAs)
+      // may have promoted the user to staff while our staff-check
+      // await was in flight. Re-check the latest ref before writing.
+      const latestUser = userRef.current;
+      if (latestUser && getRole(latestUser) !== "customer") return;
       setUserState(profile);
       setCustomers((prev) => {
         const idx = prev.findIndex((c) => c.id === profile!.id);
@@ -896,6 +945,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     void supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted || !session?.user) return;
       if (isOnResetPage()) return;
+      // Prefer the live React user (via ref) over the localStorage
+      // snapshot so a staff sign-in that hasn't finished writing to
+      // disk yet still short-circuits the customer sync. localStorage
+      // is checked as a second layer in case the ref is null on
+      // initial mount but disk already holds a staff record from a
+      // prior session.
+      const activeUser = userRef.current;
+      if (activeUser && getRole(activeUser) !== "customer") return;
       const currentUser = loadJSON<User | null>(
         STORAGE_KEYS.user,
         null
@@ -914,7 +971,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!mounted) return;
         if (event === "PASSWORD_RECOVERY") return;
         if (isOnResetPage()) return;
+        // ⚠️ TOKEN_REFRESHED / USER_UPDATED / any non-SIGNED_IN event
+        // must NOT trigger the customer sync — it would clobber a
+        // live staff session whose JWT just refreshed after a write.
         if (event === "SIGNED_IN" && session?.user) {
+          // Ref-first guard closes the race where StaffLogin has
+          // already called signInAs (setting React state) but the
+          // debounced useEffect hasn't yet written to localStorage.
+          const activeUser = userRef.current;
+          if (activeUser && getRole(activeUser) !== "customer") return;
           const currentUser = loadJSON<User | null>(
             STORAGE_KEYS.user,
             null
