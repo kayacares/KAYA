@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "@/contexts/AppContext";
+import { supabase } from "@/lib/supabase";
+import { STORAGE_KEYS, saveJSON } from "@/lib/storage";
+import { getRole } from "@/lib/permissions";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -17,9 +20,18 @@ type Mode = "signin" | "forgot";
  * Hidden staff sign-in route at /staff-login. Not linked from any
  * customer-facing surface — accessed only by KAYA operators with the
  * direct URL. Supports password sign-in and email-based password reset.
+ *
+ * ⚠️ AUTH CONTRACT (2026-Q3):
+ * Staff now authenticate via Supabase Auth (`signInWithPassword`) so
+ * their browser holds a real JWT. The catalog RLS policies gate every
+ * admin write behind `is_active_staff()`, which reads the caller's JWT
+ * email and matches it against `staff_members`. Without a Supabase
+ * session, ALL admin writes (products, shops, delivery areas, care
+ * packages, vendors, orders, staff management) will be silently
+ * rejected. Do NOT revert to the legacy app-layer password check.
  */
 export default function StaffLogin() {
-  const { signInWithCredentials, requestPasswordReset } = useApp();
+  const { customers, signInAs, requestPasswordReset } = useApp();
   const navigate = useNavigate();
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
@@ -39,7 +51,8 @@ export default function StaffLogin() {
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!email.includes("@") || !email.includes(".")) {
+    const cleanedEmail = email.trim().toLowerCase();
+    if (!cleanedEmail.includes("@") || !cleanedEmail.includes(".")) {
       setError("Enter the staff email address.");
       return;
     }
@@ -47,13 +60,64 @@ export default function StaffLogin() {
       setError("Enter your password.");
       return;
     }
+
     setSubmitting(true);
-    const result = await signInWithCredentials(email, password);
-    if (!result.ok) {
-      setError(result.error ?? "Sign in failed.");
+
+    // Look up the local staff record (synced from staff_members) so
+    // we can immediately restore the correct role after Supabase Auth
+    // hands back a session. Staff records live alongside customers in
+    // the `customers` array but always resolve to a non-customer role.
+    const staffRecord = customers.find(
+      (u) =>
+        u.email.toLowerCase() === cleanedEmail && getRole(u) !== "customer"
+    );
+
+    // Delegate the credential check to Supabase Auth so the browser
+    // ends up holding a real JWT for `is_active_staff()`.
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
+      email: cleanedEmail,
+      password,
+    });
+
+    if (authError || !data.user) {
+      const raw = authError?.message ?? "Sign in failed.";
+      const friendly = /invalid login credentials/i.test(raw)
+        ? "Email or password is incorrect."
+        : /email not confirmed/i.test(raw)
+        ? "Email not confirmed yet — contact a Super Admin."
+        : raw;
+      setError(friendly);
       setSubmitting(false);
       return;
     }
+
+    // The Auth user is genuine, but we still need a matching row in
+    // `staff_members` to know their KAYA role (Ops vs Admin vs Super
+    // Admin). Refuse sign-in and drop the fresh Supabase session if
+    // they aren't provisioned as staff, so a customer with valid
+    // credentials can't reach /admin via this route.
+    if (!staffRecord) {
+      await supabase.auth.signOut().catch(() => {});
+      setError(
+        "This account isn't provisioned for KAYA Ops. Contact a Super Admin."
+      );
+      setSubmitting(false);
+      return;
+    }
+
+    // Pre-persist the staff identity to localStorage so the auth
+    // listener in AppContext reads a non-customer user on its next
+    // tick and short-circuits its customer-sync branch (which would
+    // otherwise inject a phantom customer profile keyed to the Auth
+    // user's UUID). signInAs then mirrors this into React state and
+    // pushes the last-sign-in timestamp to Supabase.
+    const updated = {
+      ...staffRecord,
+      lastSignInAt: new Date().toISOString(),
+    };
+    saveJSON(STORAGE_KEYS.user, updated);
+    signInAs(updated);
+
     navigate("/admin", { replace: true });
   };
 
