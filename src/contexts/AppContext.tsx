@@ -685,7 +685,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // whose response is briefly missing the row.
       if (areasRes.status === "fulfilled") {
         const fresh = areasRes.value;
-        setDeliveryAreas((prev) => mergeById(fresh, prev));
+        console.log(
+          "[KAYA] Delivery areas sync poll fetched:",
+          fresh.length,
+          "rows"
+        );
+        setDeliveryAreas((prev) => {
+          const merged = mergeById(fresh, prev);
+          console.log(
+            "[KAYA] Delivery areas sync merged: prev=",
+            prev.length,
+            "fresh=",
+            fresh.length,
+            "merged=",
+            merged.length
+          );
+          return merged;
+        });
       } else {
         console.warn(
           "[KAYA] Delivery areas sync failed:",
@@ -2053,33 +2069,72 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           );
           return;
         }
-        setDeliveryAreas((prev) =>
-          prev.some((a) => a.id === cleaned.id)
-            ? prev.map((a) => (a.id === cleaned.id ? cleaned : a))
-            : [cleaned, ...prev]
+        console.log(
+          "[KAYA] upsertDeliveryArea start:",
+          cleaned.id,
+          cleaned.name,
+          cleaned.city
         );
-        // Push to shared Supabase catalog. On error, surface the
-        // real Supabase error (code + message) so silent failures
-        // become debuggable, and MERGE the refetched server rows
-        // instead of replacing state (which could itself wipe the
-        // optimistic add if the refetch is racing the write commit).
-        void catalog.upsertDeliveryAreaRow(cleaned).catch((err) => {
-          const detail =
-            (err && (err.message || err.error_description || err.hint)) ||
-            String(err);
-          console.error(
-            "[KAYA] Delivery area save failed:",
-            err,
-            detail
+        // Optimistic update — row visible in UI immediately.
+        setDeliveryAreas((prev) => {
+          const next = prev.some((a) => a.id === cleaned.id)
+            ? prev.map((a) => (a.id === cleaned.id ? cleaned : a))
+            : [cleaned, ...prev];
+          console.log(
+            "[KAYA] Optimistic delivery areas set:",
+            next.length,
+            "rows, includes new:",
+            next.some((a) => a.id === cleaned.id)
           );
-          toast.error(`Delivery area save failed: ${detail}`);
-          void catalog
-            .fetchDeliveryAreas()
-            .then((fresh) =>
-              setDeliveryAreas((prev) => mergeById(fresh, prev))
-            )
-            .catch(() => {});
+          return next;
         });
+        // Write + refetch + REPLACE state with fresh server truth.
+        // Awaiting the write guarantees the subsequent fetch sees the
+        // committed row. Direct replace (not merge) is safe here
+        // because trackWrite() holds off the polling sync until
+        // both the write AND the refetch have completed, so we're
+        // not racing any other in-flight fetch.
+        void (async () => {
+          try {
+            await catalog.upsertDeliveryAreaRow(cleaned);
+            console.log(
+              "[KAYA] Delivery area write committed:",
+              cleaned.id
+            );
+            const fresh = await catalog.fetchDeliveryAreas();
+            console.log(
+              "[KAYA] Delivery areas refetched from DB:",
+              fresh.length,
+              "rows, includes new:",
+              fresh.some((a) => a.id === cleaned.id)
+            );
+            // Merge to preserve any OTHER optimistic rows written
+            // by concurrent operations, but the just-saved row is
+            // guaranteed to be in `fresh` since we awaited the
+            // commit before refetching.
+            setDeliveryAreas((prev) => mergeById(fresh, prev));
+          } catch (err) {
+            const detail =
+              (err &&
+                ((err as Error).message ||
+                  (err as { error_description?: string })
+                    .error_description ||
+                  (err as { hint?: string }).hint)) ||
+              String(err);
+            console.error(
+              "[KAYA] Delivery area save failed:",
+              err,
+              detail
+            );
+            toast.error(`Delivery area save failed: ${detail}`);
+            try {
+              const fresh = await catalog.fetchDeliveryAreas();
+              setDeliveryAreas((prev) => mergeById(fresh, prev));
+            } catch {
+              /* ignore refetch failure */
+            }
+          }
+        })();
         if (user) {
           appendAudit(user, {
             category: "settings",
@@ -2109,27 +2164,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const target = deliveryAreas.find((a) => a.id === id);
         if (!target) return;
         setDeliveryAreas((prev) => prev.filter((a) => a.id !== id));
-        // Push delete to shared Supabase catalog. On error, MERGE
-        // the refetched server rows so we don't accidentally
-        // resurrect deletes that DID commit while surfacing the
-        // actual Supabase error to the operator.
-        void catalog.deleteDeliveryAreaRow(id).catch((err) => {
-          const detail =
-            (err && (err.message || err.error_description || err.hint)) ||
-            String(err);
-          console.error(
-            "[KAYA] Delivery area delete failed:",
-            err,
-            detail
-          );
-          toast.error(`Delivery area delete failed: ${detail}`);
-          void catalog
-            .fetchDeliveryAreas()
-            .then((fresh) =>
-              setDeliveryAreas((prev) => mergeById(fresh, prev))
-            )
-            .catch(() => {});
-        });
+        // Push delete to shared Supabase catalog, then refetch to
+        // ensure state matches DB. On error, MERGE the refetched
+        // server rows so we don't accidentally resurrect deletes
+        // that DID commit while surfacing the actual Supabase
+        // error to the operator.
+        void (async () => {
+          try {
+            await catalog.deleteDeliveryAreaRow(id);
+            const fresh = await catalog.fetchDeliveryAreas();
+            setDeliveryAreas(fresh);
+          } catch (err) {
+            const detail =
+              (err &&
+                ((err as Error).message ||
+                  (err as { error_description?: string })
+                    .error_description ||
+                  (err as { hint?: string }).hint)) ||
+              String(err);
+            console.error(
+              "[KAYA] Delivery area delete failed:",
+              err,
+              detail
+            );
+            toast.error(`Delivery area delete failed: ${detail}`);
+            try {
+              const fresh = await catalog.fetchDeliveryAreas();
+              setDeliveryAreas((prev) => mergeById(fresh, prev));
+            } catch {
+              /* ignore */
+            }
+          }
+        })();
         if (user) {
           appendAudit(user, {
             category: "settings",
