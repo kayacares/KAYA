@@ -198,6 +198,14 @@ interface AppContextType {
   deliveryAreas: DeliveryArea[];
   upsertDeliveryArea: (area: DeliveryArea) => void;
   removeDeliveryArea: (id: string) => void;
+  /**
+   * Force-refetch the delivery areas from Supabase and REPLACE local
+   * state with the server truth. Called by the customer’s
+   * AddRecipientSheet when it opens so the Town/Area dropdown always
+   * reflects the latest catalog the admin has published, even if the
+   * background 20-second poll hasn’t landed yet.
+   */
+  refreshDeliveryAreas: () => Promise<void>;
   carePackages: CarePackage[];
   upsertCarePackage: (pkg: CarePackage) => void;
   duplicateCarePackage: (id: string) => void;
@@ -679,10 +687,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
-      // Delivery areas — MERGE. This is the entity where the
-      // "saved-but-disappears" bug was first observed; the merge
-      // guarantees a newly-added town cannot be wiped by a poll
-      // whose response is briefly missing the row.
+      // Delivery areas — REPLACE with server truth.
+      //
+      // Customers never write to public.delivery_areas (admin-only
+      // table), so there are no local-only optimistic rows to
+      // preserve on the customer side. Admin-side writes are
+      // gated by trackWrite() so this poll can’t fire mid-write.
+      // Replacing (rather than merging) guarantees:
+      //   • admin deletes propagate to every customer within one
+      //     poll tick (merge would keep the deleted row alive
+      //     forever because the customer’s localStorage cached it),
+      //   • customers who visited before the admin added areas
+      //     immediately see the new areas on the next poll instead
+      //     of an empty dropdown until a hard refresh.
+      // Admin optimistic add flow still works correctly because
+      // upsertDeliveryArea awaits the write + refetch and directly
+      // sets state — the poll here only touches state when it
+      // fetches a superset of what the admin already has.
       if (areasRes.status === "fulfilled") {
         const fresh = areasRes.value;
         console.log(
@@ -690,18 +711,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           fresh.length,
           "rows"
         );
-        setDeliveryAreas((prev) => {
-          const merged = mergeById(fresh, prev);
-          console.log(
-            "[KAYA] Delivery areas sync merged: prev=",
-            prev.length,
-            "fresh=",
-            fresh.length,
-            "merged=",
-            merged.length
-          );
-          return merged;
-        });
+        setDeliveryAreas(fresh);
       } else {
         console.warn(
           "[KAYA] Delivery areas sync failed:",
@@ -2156,6 +2166,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             existing
               ? `${cleaned.name} updated`
               : `${cleaned.name} added to ${cleaned.city}`
+          );
+        }
+      },
+      refreshDeliveryAreas: async () => {
+        try {
+          const fresh = await catalog.fetchDeliveryAreas();
+          console.log(
+            "[KAYA] refreshDeliveryAreas fetched:",
+            fresh.length,
+            "rows"
+          );
+          setDeliveryAreas(fresh);
+        } catch (err) {
+          console.warn(
+            "[KAYA] refreshDeliveryAreas failed:",
+            err
           );
         }
       },

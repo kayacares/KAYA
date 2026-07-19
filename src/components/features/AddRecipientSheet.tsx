@@ -61,6 +61,7 @@ export default function AddRecipientSheet({
     addRecipient,
     updateRecipient,
     deliveryAreas,
+    refreshDeliveryAreas,
     addWaitlistEntry,
     user,
   } = useApp();
@@ -86,6 +87,13 @@ export default function AddRecipientSheet({
   // every saved field; adding zeroes everything back to defaults.
   useEffect(() => {
     if (!open) return;
+    // Force a fresh fetch of delivery areas from the server so the
+    // Town / Area dropdown always reflects the latest admin catalog
+    // — even when this browser’s AppContext was last hydrated before
+    // the admin added new towns. Prevents "admin added an area but
+    // customer can't see it in the dropdown" (the poll cadence is 20s
+    // and localStorage caches the previous snapshot on first paint).
+    void refreshDeliveryAreas();
     if (recipient) {
       setFullName(recipient.fullName);
       setPhone(recipient.phone);
