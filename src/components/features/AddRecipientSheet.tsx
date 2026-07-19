@@ -5,8 +5,10 @@ import {
   Crosshair,
   ExternalLink,
   Info,
+  Loader2,
   MapPin,
   Phone,
+  RotateCw,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -82,6 +84,15 @@ export default function AddRecipientSheet({
   const [showMapSection, setShowMapSection] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [error, setError] = useState("");
+  // Mobile networks are slower than desktop — track the delivery-
+  // area fetch state so the Town/Area dropdown shows an obvious
+  // "Loading…" indicator (not just an empty select), and a retry
+  // button if the mobile connection dropped the fetch mid-flight.
+  // Without this, a fresh-account mobile user opens the sheet
+  // before the fire-and-forget fetch resolves and sees a blank
+  // dropdown they assume is broken.
+  const [areasLoading, setAreasLoading] = useState(false);
+  const [areasError, setAreasError] = useState("");
 
   // Hydrate / reset the form every time the sheet opens. Editing pulls
   // every saved field; adding zeroes everything back to defaults.
@@ -93,7 +104,30 @@ export default function AddRecipientSheet({
     // the admin added new towns. Prevents "admin added an area but
     // customer can't see it in the dropdown" (the poll cadence is 20s
     // and localStorage caches the previous snapshot on first paint).
-    void refreshDeliveryAreas();
+    //
+    // Mobile-safe: explicit loading + error state surfaced in the
+    // dropdown so the user knows something is happening even when
+    // the mobile network is slow. Retry button lets them recover
+    // without closing / reopening the sheet.
+    let cancelled = false;
+    setAreasLoading(true);
+    setAreasError("");
+    refreshDeliveryAreas()
+      .catch((err) => {
+        if (cancelled) return;
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "Couldn’t reach the delivery catalog";
+        setAreasError(msg);
+        console.warn(
+          "[KAYA] AddRecipientSheet refreshDeliveryAreas failed:",
+          err
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setAreasLoading(false);
+      });
     if (recipient) {
       setFullName(recipient.fullName);
       setPhone(recipient.phone);
@@ -131,7 +165,10 @@ export default function AddRecipientSheet({
       setShowMapSection(false);
     }
     setError("");
-  }, [open, recipient]);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, recipient, refreshDeliveryAreas]);
 
   // Only entries the customer can pick from the dropdown.
   const cityAreas = useMemo(
@@ -179,6 +216,20 @@ export default function AddRecipientSheet({
   }, [city, townArea, dropdownAreas]);
 
   if (!open) return null;
+
+  const retryLoadAreas = () => {
+    setAreasLoading(true);
+    setAreasError("");
+    refreshDeliveryAreas()
+      .catch((err) => {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "Couldn’t reach the delivery catalog";
+        setAreasError(msg);
+      })
+      .finally(() => setAreasLoading(false));
+  };
 
   const useMyLocation = () => {
     if (!("geolocation" in navigator)) {
@@ -429,16 +480,29 @@ export default function AddRecipientSheet({
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-charcoal-700">
-              Town / Area <span className="text-clay-600">*</span>
+            <label className="text-xs font-semibold text-charcoal-700 flex items-center justify-between gap-2">
+              <span>
+                Town / Area <span className="text-clay-600">*</span>
+              </span>
+              {areasLoading && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-charcoal-400">
+                  <Loader2 size={10} className="animate-spin" />
+                  Loading…
+                </span>
+              )}
             </label>
             <select
               value={townArea}
               onChange={(e) => setTownArea(e.target.value)}
               className="input-base mt-1"
               required
+              disabled={areasLoading && dropdownAreas.length === 0}
             >
-              <option value="">Choose a Town / Area in {city}…</option>
+              <option value="">
+                {areasLoading && dropdownAreas.length === 0
+                  ? `Loading Town / Area list…`
+                  : `Choose a Town / Area in ${city}…`}
+              </option>
               {dropdownAreas.map((a) => (
                 <option key={a.id} value={a.name}>
                   {a.name}
@@ -446,11 +510,57 @@ export default function AddRecipientSheet({
                 </option>
               ))}
             </select>
-            {dropdownAreas.length === 0 && (
-              <p className="text-[11px] text-clay-600 mt-1">
-                No areas configured for {city} yet.
-              </p>
+            {areasError && (
+              <div className="mt-2 rounded-2xl bg-clay-400/10 border border-clay-400/40 p-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle
+                    size={13}
+                    className="shrink-0 mt-0.5 text-clay-600"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-semibold text-clay-600">
+                      Couldn’t load Town / Area list
+                    </p>
+                    <p className="text-[11px] text-charcoal-700 mt-0.5 leading-snug">
+                      Check your connection and try again.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={retryLoadAreas}
+                      disabled={areasLoading}
+                      className="mt-2 inline-flex items-center gap-1 rounded-full bg-charcoal-900 hover:bg-charcoal-700 text-cream-50 px-3 py-1.5 text-[11px] font-bold transition disabled:opacity-60"
+                    >
+                      {areasLoading ? (
+                        <Loader2 size={11} className="animate-spin" />
+                      ) : (
+                        <RotateCw size={11} />
+                      )}
+                      Retry
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
+            {!areasLoading &&
+              !areasError &&
+              dropdownAreas.length === 0 && (
+                <div className="mt-2 rounded-2xl bg-cream-100 border border-charcoal-100 p-3">
+                  <p className="text-[11px] font-semibold text-charcoal-900">
+                    No serviceable areas in {city} yet
+                  </p>
+                  <p className="text-[11px] text-charcoal-700 mt-0.5 leading-snug">
+                    We’re expanding fast — try again in a moment or
+                    tap Retry.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={retryLoadAreas}
+                    className="mt-2 inline-flex items-center gap-1 rounded-full bg-white border border-charcoal-100 hover:border-charcoal-400 text-charcoal-900 px-3 py-1.5 text-[11px] font-bold transition"
+                  >
+                    <RotateCw size={11} /> Retry
+                  </button>
+                </div>
+              )}
           </div>
 
           {isUnserviceable && (

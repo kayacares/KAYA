@@ -204,8 +204,13 @@ interface AppContextType {
    * AddRecipientSheet when it opens so the Town/Area dropdown always
    * reflects the latest catalog the admin has published, even if the
    * background 20-second poll hasn’t landed yet.
+   *
+   * Resolves with the fresh row count on success, or throws on
+   * network / Supabase failure so callers can surface a retry UI.
+   * The previous swallow-everything implementation hid mobile
+   * network failures from users on slow connections.
    */
-  refreshDeliveryAreas: () => Promise<void>;
+  refreshDeliveryAreas: () => Promise<number>;
   carePackages: CarePackage[];
   upsertCarePackage: (pkg: CarePackage) => void;
   duplicateCarePackage: (id: string) => void;
@@ -2191,20 +2196,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       },
       refreshDeliveryAreas: async () => {
-        try {
-          const fresh = await catalog.fetchDeliveryAreas();
-          console.log(
-            "[KAYA] refreshDeliveryAreas fetched:",
-            fresh.length,
-            "rows"
-          );
-          setDeliveryAreas(fresh);
-        } catch (err) {
-          console.warn(
-            "[KAYA] refreshDeliveryAreas failed:",
-            err
-          );
-        }
+        // Errors propagate so callers (AddRecipientSheet on mobile
+        // especially) can render an explicit retry UI instead of
+        // silently showing an empty dropdown. Home's fire-and-
+        // forget call wraps in .catch() to stay non-blocking.
+        const fresh = await catalog.fetchDeliveryAreas();
+        console.log(
+          "[KAYA] refreshDeliveryAreas fetched:",
+          fresh.length,
+          "rows"
+        );
+        setDeliveryAreas(fresh);
+        return fresh.length;
       },
       removeDeliveryArea: (id) => {
         if (deny("delivery_areas.manage", "remove delivery areas")) return;

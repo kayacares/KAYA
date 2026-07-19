@@ -55,9 +55,16 @@ export default function Home() {
   // may reach the Add Recipient sheet before that fetch lands.
   // Force a fresh fetch here on every Home mount so the customer
   // dropdown reflects the latest admin catalog regardless of
-  // cache state or sync timing.
+  // cache state or sync timing. Wrapped in .catch() because
+  // refreshDeliveryAreas now throws on failure — Home stays
+  // silent, the sheet surfaces the error with a retry.
   useEffect(() => {
-    void refreshDeliveryAreas();
+    void refreshDeliveryAreas().catch((err) => {
+      console.warn(
+        "[KAYA] Home refreshDeliveryAreas failed (mobile network?):",
+        err
+      );
+    });
   }, [refreshDeliveryAreas]);
   const orders = useMemo(
     () => (user ? allOrders.filter((o) => o.senderId === user.id) : []),
