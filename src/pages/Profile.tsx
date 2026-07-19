@@ -1,10 +1,16 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import TopBar from "@/components/layout/TopBar";
 import { useApp } from "@/contexts/AppContext";
 import {
   ArrowRight,
+  BadgeCheck,
   HelpCircle,
+  Loader2,
   LogOut,
+  Mail,
+  ShieldAlert,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -27,6 +33,141 @@ const ROLE_STYLE: Record<UserRole, string> = {
   super_admin: "bg-charcoal-900 text-cream-50",
 };
 
+/**
+ * Inline "Verify your email" card shown on Profile when the current
+ * customer has `emailVerified: false`. Offers two paths that match
+ * whatever the Supabase email template is configured to send:
+ *   1. Enter the numeric OTP code from the email.
+ *   2. Resend the confirmation email (which may contain a link the
+ *      user opens from another device or a numeric code they type
+ *      here).
+ * Nothing is blocked — the customer can dismiss and keep using KAYA;
+ * this section just makes it easy to verify at their convenience.
+ */
+function VerifyEmailCard({ email }: { email: string }) {
+  const { verifyEmailWithCode, resendEmailVerification } = useApp();
+  const [code, setCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    const cleaned = code.trim();
+    if (!/^\d{4,8}$/.test(cleaned)) {
+      setError("Enter the numeric code from your verification email.");
+      return;
+    }
+    setVerifying(true);
+    const result = await verifyEmailWithCode(cleaned);
+    setVerifying(false);
+    if (!result.ok) {
+      setError(result.error ?? "Verification failed.");
+      return;
+    }
+    toast.success("Email verified — thanks!");
+    setCode("");
+  };
+
+  const handleResend = async () => {
+    setError("");
+    setResending(true);
+    const result = await resendEmailVerification(email);
+    setResending(false);
+    if (!result.ok) {
+      const raw = result.error ?? "Couldn't resend the email.";
+      setError(raw);
+      toast.error(raw);
+      return;
+    }
+    toast.success("Verification email resent — check your inbox.");
+  };
+
+  return (
+    <section className="card-base p-4 mb-4 bg-mustard-100 border-mustard-400/40">
+      <div className="flex items-start gap-3">
+        <span className="grid place-items-center w-10 h-10 rounded-2xl bg-white text-mustard-700 shrink-0 shadow-soft">
+          <ShieldAlert size={18} />
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] uppercase tracking-eyebrow font-bold text-mustard-700">
+            Verify your email
+          </p>
+          <p className="font-semibold text-sm text-charcoal-900 mt-0.5">
+            Confirm{" "}
+            <span className="font-bold">{email}</span>
+          </p>
+          <p className="text-[11px] text-charcoal-700 mt-1 leading-snug">
+            You can keep using KAYA — verifying protects your account
+            and unlocks password recovery.
+          </p>
+        </div>
+      </div>
+
+      <form onSubmit={handleVerify} className="mt-3 flex gap-2">
+        <input
+          value={code}
+          onChange={(e) =>
+            setCode(e.target.value.replace(/\D/g, "").slice(0, 8))
+          }
+          className="input-base flex-1 tracking-[0.35em] font-semibold text-center"
+          placeholder="Enter code"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={8}
+        />
+        <button
+          type="submit"
+          disabled={verifying || code.length < 4}
+          className="rounded-2xl bg-charcoal-900 hover:bg-charcoal-700 text-cream-50 px-4 text-sm font-bold transition disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+        >
+          {verifying ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            "Verify"
+          )}
+        </button>
+      </form>
+
+      {error && (
+        <p
+          role="alert"
+          className="mt-2 text-[11px] font-semibold text-clay-600"
+        >
+          {error}
+        </p>
+      )}
+
+      <div className="mt-3 flex items-center justify-between gap-2 text-[11px]">
+        <p className="text-charcoal-700 leading-snug">
+          Sent a link instead of a code?{" "}
+          <span className="font-semibold text-charcoal-900">
+            Tap the link
+          </span>{" "}
+          in the email to verify.
+        </p>
+        <button
+          type="button"
+          onClick={handleResend}
+          disabled={resending}
+          className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-white border border-mustard-400/60 hover:border-mustard-500 text-charcoal-900 px-3 py-1.5 text-[11px] font-bold transition disabled:opacity-50"
+        >
+          {resending ? (
+            <>
+              <Loader2 size={11} className="animate-spin" /> Sending
+            </>
+          ) : (
+            <>
+              <Mail size={11} /> Resend
+            </>
+          )}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export default function Profile() {
   const { user, logout, recipients, orders } = useApp();
   const navigate = useNavigate();
@@ -35,6 +176,7 @@ export default function Profile() {
 
   const role: UserRole = user.role ?? (user.isAdmin ? "admin" : "customer");
   const isStaff = role !== "customer";
+  const isEmailVerified = user.emailVerified !== false;
 
   const myOrders = orders.filter((o) => o.senderId === user.id);
   const totalSentGHS = myOrders.reduce((s, o) => s + o.totalGHS, 0);
@@ -52,8 +194,23 @@ export default function Profile() {
               <p className="display text-xl font-semibold truncate">
                 {user.name}
               </p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <p className="text-xs text-cream-100/70 truncate">
+                  {user.email}
+                </p>
+                {!isStaff &&
+                  (isEmailVerified ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 text-emerald-300 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                      <BadgeCheck size={10} /> Verified
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-mustard-400/20 text-mustard-300 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                      <ShieldAlert size={10} /> Unverified
+                    </span>
+                  ))}
+              </div>
               <p className="text-xs text-cream-100/70 truncate">
-                {user.email} · {user.country}
+                {user.country}
               </p>
               <span className={`chip text-[10px] mt-2 ${ROLE_STYLE[role]}`}>
                 {isStaff && <ShieldCheck size={11} />}
@@ -81,6 +238,8 @@ export default function Profile() {
             </div>
           )}
         </section>
+
+        {!isStaff && !isEmailVerified && <VerifyEmailCard email={user.email} />}
 
         {!isStaff && <ReferralCreditCard />}
 

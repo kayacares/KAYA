@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { useApp } from "@/contexts/AppContext";
 import {
   ArrowRight,
   CheckCircle2,
@@ -40,6 +41,7 @@ type Phase = "verifying" | "success" | "expired";
  */
 export default function VerifyEmail() {
   const navigate = useNavigate();
+  const { user, setUser } = useApp();
   const [phase, setPhase] = useState<Phase>("verifying");
   const [sessionActive, setSessionActive] = useState(false);
 
@@ -83,12 +85,19 @@ export default function VerifyEmail() {
   useEffect(() => {
     if (!sessionActive) return;
     setPhase("success");
+    // Flip the local user's emailVerified flag to true so the
+    // "Unverified" badge on Profile clears immediately. The auth
+    // listener in AppContext bails when the signed-in email already
+    // matches the current user, so we update explicitly here.
+    if (user && user.emailVerified !== true) {
+      setUser({ ...user, emailVerified: true });
+    }
     toast.success("Email verified — welcome to KAYA!");
     const t = window.setTimeout(() => {
       navigate("/", { replace: true });
     }, 1500);
     return () => window.clearTimeout(t);
-  }, [sessionActive, navigate]);
+  }, [sessionActive, navigate, user, setUser]);
 
   return (
     <div className="min-h-screen bg-cream-50 flex flex-col">

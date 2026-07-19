@@ -100,6 +100,16 @@ export interface User {
   referralsCount?: number;
   /** Default substitution preference applied to new orders. */
   substitutionPreference?: SubstitutionPreference;
+  /**
+   * Whether the customer has confirmed their email address via the
+   * Supabase verification link / code. Customers can use KAYA before
+   * verifying — an "Unverified" badge is shown on Profile and a
+   * gentle banner prompts them to verify. Flipped to `true` the
+   * moment the Supabase auth listener detects a live session for
+   * this email (which only happens after the user opens the
+   * verification link or enters the OTP code).
+   */
+  emailVerified?: boolean;
 }
 
 export interface BundleItem {

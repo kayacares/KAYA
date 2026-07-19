@@ -314,6 +314,17 @@ type Mode = "signup" | "signin" | "forgot";
  * and delivery notifications but never used as the primary login
  * factor. Google users complete their phone / country later on the
  * Profile page.
+ *
+ * ⚠️ EMAIL VERIFICATION IS NON-BLOCKING (fixed 2026-Q3, do not
+ * regress): Customers are signed into KAYA immediately after
+ * successful sign-up, EVEN when Supabase's server-side settings
+ * would normally require email confirmation. The signed-in user
+ * carries `emailVerified: false` which surfaces an "Unverified"
+ * badge and gentle prompt on the Profile page. The blocking
+ * "check your email" screen was removed because customers were
+ * getting stuck when the Supabase email template sends an OTP
+ * code (no code entry field existed) or when the link never
+ * arrived. Verification now happens at leisure from Profile.
  */
 export default function Login() {
   const {
@@ -321,7 +332,6 @@ export default function Login() {
     signInCustomerWithEmail,
     signInWithGoogle,
     requestCustomerPasswordReset,
-    resendEmailVerification,
   } = useApp();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -344,9 +354,6 @@ export default function Login() {
   const [phone, setPhone] = useState("");
   const [country, setCountry] = useState<CountryOption>(COUNTRIES[0]);
   const [referralCode, setReferralCode] = useState("");
-  const [emailConfirmationSent, setEmailConfirmationSent] = useState<
-    string | null
-  >(null);
 
   // Sign-in state
   const [signinEmail, setSigninEmail] = useState("");
@@ -356,34 +363,15 @@ export default function Login() {
   const [forgotEmail, setForgotEmail] = useState("");
   const [resetSent, setResetSent] = useState(false);
 
-  // Resend-verification state — shown on the post-signup "check
-  // your email" screen so customers who never received the first
-  // email can request a fresh link. Cooldown prevents accidental
-  // spamming and reflects Supabase's server-side rate limits.
-  const [resending, setResending] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
-
   useEffect(() => {
     const ref = searchParams.get("ref");
     if (ref) setReferralCode(normalizeReferralCode(ref));
   }, [searchParams]);
 
-  // Tick the resend cooldown down to zero, one second at a time.
-  // Using setTimeout (recursively via state dep) keeps a single
-  // pending timer live at any moment.
-  useEffect(() => {
-    if (resendCooldown <= 0) return;
-    const t = window.setTimeout(() => {
-      setResendCooldown((c) => Math.max(0, c - 1));
-    }, 1000);
-    return () => window.clearTimeout(t);
-  }, [resendCooldown]);
-
   const switchMode = (next: Mode) => {
     setMode(next);
     setError("");
     setResetSent(false);
-    setEmailConfirmationSent(null);
   };
 
   const handleGoogleSignIn = async () => {
@@ -457,10 +445,16 @@ export default function Login() {
       return;
     }
 
+    // Sign the user in immediately — no blocking "check your email"
+    // screen. If Supabase requires email confirmation we still let
+    // them in; they'll see a gentle "Unverified" badge in Profile
+    // with a resend / verify-with-code option to complete later.
     if (result.needsEmailConfirmation) {
-      setEmailConfirmationSent(email.trim());
-      setSubmitting(false);
-      return;
+      toast.success("Welcome to KAYA — verify your email anytime from Profile.", {
+        duration: 6000,
+      });
+    } else {
+      toast.success("Welcome to KAYA!");
     }
 
     const nextPath = searchParams.get("next") ?? "/";
@@ -499,25 +493,6 @@ export default function Login() {
     toast.success("Reset link sent — check your email.");
   };
 
-  const handleResendVerification = async () => {
-    if (!emailConfirmationSent || resending || resendCooldown > 0) return;
-    setResending(true);
-    const result = await resendEmailVerification(emailConfirmationSent);
-    setResending(false);
-    if (!result.ok) {
-      // Supabase's rate-limit message reads "For security purposes,
-      // you can only request this after N seconds" — pluck the
-      // number out so we can drive the button countdown ourselves
-      // instead of just showing an opaque error.
-      const match = result.error?.match(/(\d+)\s*seconds?/i);
-      if (match) setResendCooldown(parseInt(match[1], 10));
-      toast.error(result.error ?? "Couldn’t resend the email.");
-      return;
-    }
-    setResendCooldown(60);
-    toast.success("Verification email resent — check your inbox.");
-  };
-
   return (
     <div className="min-h-screen bg-cream-50 flex flex-col">
       <header className="w-full border-b border-charcoal-100/60">
@@ -545,7 +520,7 @@ export default function Login() {
 
       <div className="flex-1 flex items-start justify-center py-8 sm:py-12 px-4 sm:px-6">
         <div className="w-full max-w-md animate-fade-in-up">
-          {mode !== "forgot" && !emailConfirmationSent && (
+          {mode !== "forgot" && (
             <div
               role="tablist"
               aria-label="Authentication mode"
@@ -580,7 +555,7 @@ export default function Login() {
             </div>
           )}
 
-          {mode === "signup" && !emailConfirmationSent && (
+          {mode === "signup" && (
             <>
               <div className="mb-6">
                 <h1 className="display text-3xl sm:text-[2rem] font-semibold text-charcoal-900 leading-[1.15]">
@@ -822,76 +797,6 @@ export default function Login() {
             </>
           )}
 
-          {mode === "signup" && emailConfirmationSent && (
-            <div className="text-center py-4">
-              <span className="inline-grid place-items-center w-16 h-16 rounded-3xl bg-emerald-100 text-emerald-600 mb-4 shadow-soft">
-                <Mail size={28} />
-              </span>
-              <h2 className="display text-2xl font-semibold text-charcoal-900">
-                Check your email
-              </h2>
-              <p className="text-sm text-charcoal-700 mt-2 leading-relaxed">
-                We&rsquo;ve sent a verification link to{" "}
-                <span className="font-semibold text-charcoal-900">
-                  {emailConfirmationSent}
-                </span>
-                . Tap{" "}
-                <span className="font-semibold text-charcoal-900">
-                  Verify Email
-                </span>{" "}
-                in the message and you&rsquo;ll be signed in to KAYA
-                automatically — no code to type.
-              </p>
-              <div className="mt-5 rounded-2xl bg-cream-100 border border-charcoal-100 px-4 py-3.5 text-left">
-                <p className="text-[10px] uppercase tracking-eyebrow font-bold text-charcoal-400">
-                  Didn&rsquo;t receive it?
-                </p>
-                <p className="text-[11px] text-charcoal-700 mt-1 leading-relaxed">
-                  Verification emails can take up to a minute to arrive.
-                  Check your spam folder if it&rsquo;s not in your inbox.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleResendVerification}
-                  disabled={resending || resendCooldown > 0}
-                  className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-white border border-charcoal-100 hover:border-charcoal-400 text-charcoal-900 px-4 py-2.5 text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {resending ? (
-                    <>
-                      <Loader2 size={14} className="animate-spin" /> Sending&hellip;
-                    </>
-                  ) : resendCooldown > 0 ? (
-                    <>Resend in {resendCooldown}s</>
-                  ) : (
-                    <>
-                      <Mail size={14} /> Resend verification email
-                    </>
-                  )}
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmailConfirmationSent(null);
-                  setResendCooldown(0);
-                }}
-                className="mt-4 text-xs font-semibold text-charcoal-700 hover:text-charcoal-900 underline-offset-2 hover:underline"
-              >
-                Use a different email
-              </button>
-              <p className="mt-4 text-[11px] text-charcoal-400">
-                Already verified?{" "}
-                <button
-                  type="button"
-                  onClick={() => switchMode("signin")}
-                  className="font-semibold text-charcoal-900 underline-offset-2 hover:underline"
-                >
-                  Sign in
-                </button>
-              </p>
-            </div>
-          )}
-
           {mode === "signin" && (
             <>
               <div className="mb-6">
@@ -1123,7 +1028,7 @@ export default function Login() {
             </>
           )}
 
-          {mode !== "forgot" && !emailConfirmationSent && (
+          {mode !== "forgot" && (
             <div className="mt-8 pt-6 border-t border-charcoal-100 text-center">
               <p className="text-[11px] uppercase tracking-eyebrow font-bold text-charcoal-400 mb-2">
                 Just want a launch alert?

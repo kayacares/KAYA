@@ -291,9 +291,13 @@ interface AppContextType {
   /**
    * Sign up a new customer with email + password via Supabase Auth,
    * create the matching customer profile row, apply any referral
-   * credit and sign the browser in. If Supabase requires email
-   * confirmation the customer stays signed-out and `needsEmailConfirmation`
-   * is returned so the UI can prompt them to check their inbox.
+   * credit and sign the browser in immediately — EVEN WHEN Supabase
+   * would normally require email confirmation. The customer can use
+   * KAYA right away; an `emailVerified: false` flag lives on the
+   * user profile so Profile can surface an "Unverified" badge and a
+   * gentle verification prompt. The `needsEmailConfirmation` return
+   * flag is retained for informational use only — nothing in the UI
+   * gates on it any more.
    */
   signUpWithEmail: (data: {
     firstName: string;
@@ -309,6 +313,15 @@ interface AppContextType {
     user?: User;
     needsEmailConfirmation?: boolean;
   }>;
+  /**
+   * Verify a customer's email address by submitting the numeric OTP
+   * code from the Supabase confirmation email. On success the local
+   * user is flagged `emailVerified: true` and the customers table is
+   * updated so the badge clears across every device.
+   */
+  verifyEmailWithCode: (
+    code: string
+  ) => Promise<{ ok: boolean; error?: string }>;
   /** Sign in a customer with email + password via Supabase Auth. */
   signInCustomerWithEmail: (
     email: string,
@@ -951,7 +964,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (profile) {
-        profile = { ...profile, lastSignInAt: new Date().toISOString() };
+        profile = {
+          ...profile,
+          lastSignInAt: new Date().toISOString(),
+          // A live Supabase session for this email means the user
+          // has completed the email-verification handshake (either
+          // by clicking the confirmation link or entering the OTP).
+          emailVerified: true,
+        };
       } else {
         const md = (authUser.user_metadata ?? {}) as Record<
           string,
@@ -983,6 +1003,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           currency: "GHS",
           country: (md.country as Country | undefined) ?? "USA",
           phoneVerified: !!md.phone,
+          emailVerified: true,
           joinedAt: new Date().toISOString(),
           lastSignInAt: new Date().toISOString(),
           referralCode: generateReferralCode(firstName || fullName || "K"),
@@ -3824,6 +3845,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
 
         const fullName = `${fn} ${ln}`;
+        const isVerified = !!authData.session;
         const profile: User = {
           id: authData.user.id,
           role: "customer",
@@ -3835,6 +3857,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           country: data.country,
           currency: "GHS",
           phoneVerified: true,
+          emailVerified: isVerified,
           joinedAt: new Date().toISOString(),
           lastSignInAt: new Date().toISOString(),
           referralCode: generateReferralCode(fn),
@@ -3852,17 +3875,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           );
         }
 
-        // No Supabase session yet \u2014 email confirmation required.
-        // The profile row is safely written; the user must confirm
-        // via email before they can sign in.
-        if (!authData.session) {
-          return {
-            ok: true,
-            user: profile,
-            needsEmailConfirmation: true,
-          };
-        }
-
+        // Sign the customer in locally so they can start using KAYA
+        // immediately — no blocking "check your email" screen. RLS
+        // policies on customers / recipients / orders allow anon
+        // access, so the app is fully functional even without a
+        // Supabase session. When they eventually verify (link or
+        // OTP), the auth listener flips emailVerified to true.
         setUserState(profile);
         setCustomers((prev) => [
           profile,
@@ -3878,7 +3896,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         if (normalisedRef) applyReferralCredit(normalisedRef);
 
-        return { ok: true, user: profile };
+        return {
+          ok: true,
+          user: profile,
+          needsEmailConfirmation: !isVerified,
+        };
+      },
+      verifyEmailWithCode: async (code) => {
+        const currentUser = userRef.current;
+        if (!currentUser?.email) {
+          return { ok: false, error: "Sign in to verify your email." };
+        }
+        const cleaned = code.trim();
+        if (!/^\d{4,8}$/.test(cleaned)) {
+          return {
+            ok: false,
+            error: "Enter the numeric code from your verification email.",
+          };
+        }
+        const { data, error } = await supabase.auth.verifyOtp({
+          email: currentUser.email,
+          token: cleaned,
+          type: "signup",
+        });
+        if (error) {
+          const raw = error.message ?? "Verification failed.";
+          const friendly = /expired|invalid/i.test(raw)
+            ? "That code has expired or is incorrect. Request a fresh one."
+            : raw;
+          return { ok: false, error: friendly };
+        }
+        if (!data.session) {
+          return {
+            ok: false,
+            error: "Verification didn\u2019t return a session. Try again.",
+          };
+        }
+        const verified: User = { ...currentUser, emailVerified: true };
+        setUserState(verified);
+        setCustomers((prev) =>
+          prev.map((c) => (c.id === verified.id ? verified : c))
+        );
+        try {
+          await catalog.upsertCustomerRow(verified);
+        } catch (err) {
+          console.warn("[KAYA] Verified customer save failed:", err);
+        }
+        return { ok: true };
       },
       signInCustomerWithEmail: async (email, password) => {
         const cleanedEmail = email.trim().toLowerCase();
