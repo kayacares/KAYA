@@ -43,9 +43,22 @@ export default function Home() {
     shops,
     carePackages,
     deliveryAreas,
+    refreshDeliveryAreas,
     addToCart,
     setActiveRecipient,
   } = useApp();
+
+  // ⚠️ FRESH-BROWSER GUARANTEE (fixed 2026-Q3, do not regress):
+  // On a completely new browser with no cache, localStorage is
+  // empty and initial state starts as []. The AppContext sync
+  // polls delivery areas on mount, but it's async — the customer
+  // may reach the Add Recipient sheet before that fetch lands.
+  // Force a fresh fetch here on every Home mount so the customer
+  // dropdown reflects the latest admin catalog regardless of
+  // cache state or sync timing.
+  useEffect(() => {
+    void refreshDeliveryAreas();
+  }, [refreshDeliveryAreas]);
   const orders = useMemo(
     () => (user ? allOrders.filter((o) => o.senderId === user.id) : []),
     [allOrders, user]
