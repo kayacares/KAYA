@@ -32,7 +32,7 @@ import type { Shop } from "@/types";
 /*  SEO configuration                                                 */
 /* ------------------------------------------------------------------ */
 
-const SITE_URL = "https://kaya.onspace.app";
+const SITE_URL = "https://sendkaya.com";
 const OG_IMAGE_URL = `${SITE_URL}/og-image.jpg`;
 
 const LANDING_TITLE =
